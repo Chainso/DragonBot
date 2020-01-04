@@ -1,7 +1,7 @@
 from rlbot.agents.base_agent import BaseAgent, SimpleControllerState
 from rlbot.utils.structures.game_data_struct import GameTickPacket
 
-from dragonbot.models.model.py import Model
+from models.model.py import Model
 
 class RLAgent(BaseAgent):
     def initialize_agent(self):
