@@ -24,7 +24,7 @@ class Model(nn.Module):
         self.optimizer = torch.optim.Adam(self.parameters(), lr = 1e-4)
 
     def forward(self, inp):
-        hid = self.hid(inp)
+        hid = self.hidden(inp)
         policy = self.policy(hid)
         value = self.value(hid)
 
