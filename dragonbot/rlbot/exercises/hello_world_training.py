@@ -1,3 +1,5 @@
+import os
+
 from pathlib import Path
 from dataclasses import dataclass, field
 from math import pi
@@ -15,15 +17,14 @@ from drive_to_ball_grader import DriveToBallGrader
 
 
 def make_match_config_with_my_bot() -> MatchConfig:
-    # Makes a config which only has our bot in it for now.
-    # For more defails: https://youtu.be/uGFmOZCpel8?t=375
+    file_path = os.path.dirname(os.path.realpath(__file__))
+    config_path = os.path.realpath(file_path + "/../config/bot.cfg")
+
     match_config = make_empty_match_config()
     match_config.player_configs = [
-        PlayerConfig.bot_config(
-            Path(__file__).absolute().parent.parent / 'src' / 'bot.cfg',
-            Team.BLUE
-        ),
+        PlayerConfig.bot_config(Path(config_path), Team.BLUE)
     ]
+
     return match_config
 
 @dataclass
