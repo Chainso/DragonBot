@@ -12,6 +12,7 @@ from rlbot.training.training import Grade, Pass, Fail
 from rlbottraining.grading.training_tick_packet import TrainingTickPacket
 from rlbottraining.common_graders.timeout import FailOnTimeout
 from rlbottraining.common_graders.compound_grader import CompoundGrader
+from rlbottraining.common_graders.goal_grader import StrikerGrader
 from rlbottraining.common_exercises.common_base_exercises import GoalieExercise
 from rlbottraining.rng import SeededRandomNumberGenerator
 from rlbottraining.common_exercises.silver_striker import make_default_playlist as mdp
@@ -25,9 +26,10 @@ class SaveGoalGrader(Grader):
         car = tick.game_tick_packet.game_cars[0].physics
         jumped = tick.game_tick_packet.game_cars[0].jumped
         ball = tick.game_tick_packet.game_ball.physics
-        return Pass() if jumped else None
 
-class GoldBallRollingToGoalieGrader(CompoundGrader):
+        return None
+
+class GoldBallRollingToStrikerGrader(CompoundGrader):
     def __init__(self, timeout_seconds=4.0):
         super().__init__([
             SaveGoalGrader(),
@@ -38,7 +40,7 @@ class GoldBallRollingToGoalieGrader(CompoundGrader):
 @dataclass
 class GoldBallRollingToGoalie(GoalieExercise):
     # The grader is mine
-    grader: Grader = field(default_factory=GoldBallRollingToGoalieGrader)
+    grader: Grader = field(default_factory=GoldBallRollingToStrikerGrader)
 
     def make_game_state(self, rng: SeededRandomNumberGenerator) -> GameState:
         return GameState(
