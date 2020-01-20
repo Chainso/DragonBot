@@ -12,7 +12,7 @@ from hlrl.torch.experience_replay import TorchPER
 def packet_to_state(packet, curr):
     return [1, 0]
 
-class RLAgent(BaseAgent):
+class TorchAgent(BaseAgent):
     def initialize_agent(self):
         import torch
         self.torch = torch
