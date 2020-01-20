@@ -15,7 +15,8 @@ class PoolAgent(BaseAgent):
         (self.device, self.model) = self.pipe.recv()
         self.pipe.send(None)
 
-        self.input_formatter = InputFormatter(self.device)
+        self.input_formatter = InputFormatter(self.team, self.index,
+                                              self.device)
         self.output_formatter = OutputFormatter()
 
     def get_helper_process_request(self):
@@ -27,6 +28,8 @@ class PoolAgent(BaseAgent):
         return request
 
     def get_output(self, packet):
+        model_inp = self.input_formatter.transform_packet(packet)
+
         action = torch.FloatTensor([[1, -0.1, 0.2, 0, 0, 0, 0, 0]])
         val = 1
 

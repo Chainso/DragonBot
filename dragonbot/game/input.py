@@ -4,13 +4,22 @@ class InputFormatter():
     """
     A class to format game input to feed into the model.
     """
-    def __init__(self, device):
+    def __init__(self, team, index, device="cpu"):
+        self.team = team
+        self.index = index
         self.device = torch.device(device)
 
-    def transform_state(self, state):
+    def _get_car_info(self, car):
         """
-        Transforms the state to feed into the model.
+        Gets the relevant information for a game car.
         """
+        physics = car.physics
+
+    def transform_packet(self, packet):
+        """
+        Transforms the packet into a state to feed into the model.
+        """
+        cars_info = []
         return torch.FloatTensor([state]).to(device)
 
     @staticmethod
