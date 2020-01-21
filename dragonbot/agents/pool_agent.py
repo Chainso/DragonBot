@@ -3,21 +3,96 @@ import torch
 from torch.multiprocessing import Pipe
 from rlbot.agents.base_agent import BaseAgent, SimpleControllerState
 from rlbot.botmanager.helper_process_request import HelperProcessRequest
+from collections import deque
 
-from dragonbot.game.input import InputFormatter
-from dragonbot.game.output import OutputFormatter
+from dragonbot.game.input import RecurrentInputFormatter
+from dragonbot.game.output import RecurrentOutputFormatter
 
 class PoolAgent(BaseAgent):
     """
     An agent that exists in a pool with other agents.
     """
     def initialize_agent(self):
-        (self.device, self.model) = self.pipe.recv()
-        self.pipe.send(None)
+        (self.config, self.device, self.model) = self.pipe.recv()
 
-        self.input_formatter = InputFormatter(self.team, self.index,
-                                              self.device)
-        self.output_formatter = OutputFormatter()
+        self.input_formatter = RecurrentInputFormatter(self.team, self.index,
+                                                       self.device)
+        self.output_formatter = RecurrentOutputFormatter()
+
+        self.empty_action = torch.FloatTensor([[[0] * self.output_formatter.action_space()]])
+        self.empty_action = self.empty_action.to(self.device)
+
+        self.hidden_state = self.model.reset_hidden_state()
+        self.action = self.empty_action
+
+        # Training values
+        self.train = self.config["Training"].getboolean("train")
+
+        if self.train:
+            self.decay = float(self.config["Algorithm"]["discount"])
+            self.sequence_length = int(self.config["Algorithm"]["sequence_length"])
+            self.burn_in_length = int(self.config["Algorithm"]["burn_in_length"])
+
+            self.experiences = deque(maxlen=int(self.config["Training"]["n_steps"]))
+            self.ready_experiences = []
+            self.q_vals = []
+            self.target_qs = []
+
+            self.state = None
+
+            self.reward = 0
+            self.terminal = torch.FloatTensor([[[False]]]).to(self.device)
+            self.last_action = self.empty_action
+
+    def retire(self):
+        self.terminal = torch.FloatTensor([[[True]]]).to(self.device)
+
+    def _n_step_decay(self):
+        """
+        Perform n-step decay on experiences.
+        """
+        reward = 0
+        for experience in list(self.experiences)[::-1]:
+            reward += experience[0][2] + self.decay * reward
+
+        return reward
+
+    def _get_buffer_experience(self):
+        """
+        Perpares the experience to add to the buffer.
+        """
+        reward = self._n_step_decay()
+
+        experience = self.experiences.pop()
+
+        experience, q_val, next_q = experience
+
+        experience[2] = reward
+
+        target_q_val = reward + self.decay * next_q
+
+        self.ready_experiences.append(experience)
+        self.q_vals.append(q_val)
+        self.target_qs.append(target_q_val)
+
+    def add_to_buffer(self, experience, q_val, target_q_val):
+        """
+        Adds the experience to the replay buffer.
+        """
+        self.experiences.append((experience, q_val, target_q_val))
+
+        if len(self.experiences) == self.experiences.maxlen:
+            self._get_buffer_experience()
+
+        if len(self.ready_experiences) == self.sequence_length:
+            self.q_vals = torch.stack(self.q_vals)
+            self.target_qs = torch.stack(self.target_qs)
+
+            self.pipe.send((self.ready_experiences, self.q_vals, self.target_qs))
+
+            self.ready_experiences = []
+            self.q_vals = []
+            self.target_qs = []
 
     def get_helper_process_request(self):
         manager_file = "dragonbot/managers/bot_pool_manager.py"
@@ -28,10 +103,39 @@ class PoolAgent(BaseAgent):
         return request
 
     def get_output(self, packet):
-        model_inp = self.input_formatter.transform_packet(packet)
+        model_inp = self.input_formatter.transform_batch([[packet]])
+        model_out = self.model.step(model_inp, self.action, self.hidden_state)
+        next_hidden = model_out[-1]
 
-        action = torch.FloatTensor([[1, -0.1, 0.2, 0, 0, 0, 0, 0]])
-        val = 1
+        action, next_q = self.output_formatter.transform_output(model_out[:-1])
 
-        controller, val = self.output_formatter.transform_output((action, val))
-        return controller
+        if self.train:
+            self.reward = self.get_reward(packet)
+            if self.state is not None:
+                self.add_to_buffer([self.state, self.action, self.reward,
+                                    model_inp, self.terminal, self.last_action,
+                                    self.hidden_state, next_hidden], self.q_val,
+                                    next_q)
+
+            self.state = model_inp
+            self.action = model_out[0]
+            self.q_val = next_q
+
+        self.last_action = self.action
+        self.hidden_state = next_hidden
+
+        return action
+
+    def get_reward(self, next_packet):
+        """
+        Returns the reward for the action.
+        """
+        # Reward is the squared difference between the locations of the car and
+        # the ball
+        car_info = self.input_formatter.get_obj_info(next_packet.game_cars[self.index])
+        ball_info = self.input_formatter.get_obj_info(next_packet.game_ball)
+
+        mse = torch.mean(0.5 * (car_info[0:2] - ball_info[0:2]) ** 2).mean(-1)
+        mse = mse.view(1, 1, *mse.shape)
+
+        return mse

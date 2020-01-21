@@ -40,16 +40,16 @@ class InputFormatter():
             loc.x, loc.y, loc.z,
             vel.x, vel.y, vel.z,
             ang_v.x, ang_v.y, ang_v.z
-        ]).to(self.device)
+        ])
         loc_vel = loc_vel / 1000
 
         rot_info = torch.FloatTensor([
             rot.pitch, rot.yaw, rot.roll,
-        ]).to(self.device)
+        ])
 
-        car_info = torch.cat(loc_vel, rot_info, dim=0)
+        obj_info = torch.cat([loc_vel, rot_info])
 
-        return car_info
+        return obj_info
 
     def transform_packet(self, packet):
         """
@@ -59,26 +59,32 @@ class InputFormatter():
         my_team_info = []
         enemy_team_info = []
 
-        for i in range(len(packet.game_cars)):
+        for i in range(packet.num_cars):
             car = packet.game_cars[i]
             car_info = self.get_obj_info(car)
 
             if i == self.index:
                 boost = torch.FloatTensor([packet.num_boost / 100])
-                my_car_info = torch.cat(car_info, boost)
-                my_team_info = [my_car_info] + [my_team_info]
+                my_car_info = torch.cat([car_info, boost])
+                my_team_info = [my_car_info] + my_team_info
             elif car.team == self.team:
                 my_team_info.append(car_info)
             else:
                 enemy_team_info.append(car_info)
 
-        car_infos = torch.cat(*(my_team_info + enemy_team_info))
-
         ball_info = self.get_obj_info(packet.game_ball)
 
-        all_info = torch.cat(car_infos, ball_info)
+        car_infos = torch.cat(my_team_info + enemy_team_info)
 
-        return all_info
+        all_info = torch.cat(my_team_info + enemy_team_info + [ball_info])
+
+        return all_info.to(self.device)
+
+    def transform_batch(self, packets):
+        """
+        Transforms a batch of packets.
+        """
+        return torch.stack([self.transform_packet(packet) for packet in packets])
 
     @staticmethod
     def state_space():
@@ -86,7 +92,7 @@ class InputFormatter():
         Returns the shape of the input state (excluding batch size and sequence
         length).
         """
-        return (2,)
+        return (37,)
 
     @staticmethod
     def input_space():
@@ -94,3 +100,49 @@ class InputFormatter():
         Returns the shape of the formatted input.
         """
         return (1, *InputFormatter.state_space())
+
+class RecurrentInputFormatter(InputFormatter):
+    def __init__(self, team, index, device="cpu"):
+        super().__init__(team, index, device)
+
+    def transform_packet(self, packet):
+        """
+        Transforms the packet into a state to feed into the model.
+        """
+        #### COPYING BECAUSE THE CLASS ISN'T LOADING PROPERLY RIGHT NOW
+        # It's your car first, then your team, then the enemy team
+        my_team_info = []
+        enemy_team_info = []
+
+        for i in range(packet.num_cars):
+            car = packet.game_cars[i]
+            car_info = self.get_obj_info(car)
+
+            if i == self.index:
+                boost = torch.FloatTensor([packet.num_boost / 100])
+                my_car_info = torch.cat([car_info, boost])
+                my_team_info = [my_car_info] + my_team_info
+            elif car.team == self.team:
+                my_team_info.append(car_info)
+            else:
+                enemy_team_info.append(car_info)
+
+        ball_info = self.get_obj_info(packet.game_ball)
+
+        car_infos = torch.cat(my_team_info + enemy_team_info)
+
+        all_info = torch.cat(my_team_info + enemy_team_info + [ball_info])
+
+        return all_info.to(self.device)
+
+    def transform_batch(self, packets):
+        """
+        Transforms a matrix of (batch size, sequence length, packet shape).
+        """
+        return torch.stack([torch.stack([self.transform_packet(packet)
+                                         for packet in packet_seq])
+                            for packet_seq in packets])
+
+    @staticmethod
+    def input_space():
+        return (1, *InputFormatter.input_space())
