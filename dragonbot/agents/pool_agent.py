@@ -84,15 +84,15 @@ class PoolAgent(BaseAgent):
         if len(self.experiences) == self.experiences.maxlen:
             self._get_buffer_experience()
 
-        if len(self.ready_experiences) == self.sequence_length:
-            self.q_vals = torch.stack(self.q_vals)
-            self.target_qs = torch.stack(self.target_qs)
+        if len(self.ready_experiences) == self.sequence_length + self.burn_in_length:
+            q_vals = torch.cat(self.q_vals)
+            target_qs = torch.cat(self.target_qs)
 
-            self.pipe.send((self.ready_experiences, self.q_vals, self.target_qs))
+            self.pipe.send((self.ready_experiences, q_vals, target_qs))
 
-            self.ready_experiences = []
-            self.q_vals = []
-            self.target_qs = []
+            self.ready_experiences = self.ready_experiences[-self.burn_in_length:]
+            self.q_vals = self.q_vals[-self.burn_in_length:]
+            self.target_qs = self.target_qs[-self.burn_in_length:]
 
     def get_helper_process_request(self):
         manager_file = "dragonbot/managers/bot_pool_manager.py"
@@ -136,6 +136,6 @@ class PoolAgent(BaseAgent):
         ball_info = self.input_formatter.get_obj_info(next_packet.game_ball)
 
         mse = torch.mean(0.5 * (car_info[0:2] - ball_info[0:2]) ** 2).mean(-1)
-        mse = mse.view(1, 1, *mse.shape)
+        mse = mse.view(1, 1, 1)
 
         return mse
