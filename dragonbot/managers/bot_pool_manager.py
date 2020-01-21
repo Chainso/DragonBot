@@ -53,7 +53,7 @@ class BotPoolManager(BotHelperProcess):
 
         optim = lambda params: torch.optim.Adam(params,
                                                 lr=float(config["Algorithm"]["lr"]))
-        self.model = SACRecurrent(action_space, qfunc, policy,
+        self.model = SACRecurrent([action_space], qfunc, policy,
                                   float(config["Algorithm"]["discount"]),
                                   float(config["Algorithm"]["polyak"]),
                                   float(config["Algorithm"]["target_update_interval"]),

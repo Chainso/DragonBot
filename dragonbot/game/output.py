@@ -28,7 +28,7 @@ class OutputFormatter():
         action, val = model_output
 
         action = self.transform_action(action)
-        val = val.detach()[0]
+        val = val.detach()
 
         return action, val
 

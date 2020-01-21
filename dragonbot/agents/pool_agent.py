@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 
 from torch.multiprocessing import Pipe
 from rlbot.agents.base_agent import BaseAgent, SimpleControllerState
@@ -37,9 +38,10 @@ class PoolAgent(BaseAgent):
             self.ready_experiences = []
             self.q_vals = []
             self.target_qs = []
+            self.hidden_states = deque(maxlen=(1 + int(np.ceil(self.burn_in_length
+                                                               / self.sequence_length))))
 
             self.state = None
-
             self.reward = 0
             self.terminal = torch.FloatTensor([[[False]]]).to(self.device)
             self.last_action = self.empty_action
@@ -66,10 +68,14 @@ class PoolAgent(BaseAgent):
         experience = self.experiences.pop()
 
         experience, q_val, next_q = experience
+        experience, hidden_state = experience[:-1], experience[-1]
 
         experience[2] = reward
 
         target_q_val = reward + self.decay * next_q
+
+        if len(self.ready_experiences) % self.sequence_length == 0:
+            self.hidden_states.append(hidden_state)
 
         self.ready_experiences.append(experience)
         self.q_vals.append(q_val)
@@ -85,10 +91,14 @@ class PoolAgent(BaseAgent):
             self._get_buffer_experience()
 
         if len(self.ready_experiences) == self.sequence_length + self.burn_in_length:
-            q_vals = torch.cat(self.q_vals)
-            target_qs = torch.cat(self.target_qs)
+            q_vals = torch.cat(self.q_vals, dim=1)
+            target_qs = torch.cat(self.target_qs, dim=1)
 
-            self.pipe.send((self.ready_experiences, q_vals, target_qs))
+            hidden_state = np.array(self.hidden_states.pop(), dtype=object)
+            ready_experiences = np.array(self.ready_experiences, dtype=object)
+
+            self.pipe.send(((ready_experiences, hidden_state), q_vals,
+                            target_qs))
 
             self.ready_experiences = self.ready_experiences[-self.burn_in_length:]
             self.q_vals = self.q_vals[-self.burn_in_length:]
@@ -103,10 +113,14 @@ class PoolAgent(BaseAgent):
         return request
 
     def get_output(self, packet):
+        if not packet.game_info.is_round_active:
+            return SimpleControllerState()
+
         model_inp = self.input_formatter.transform_batch([[packet]])
         model_out = self.model.step(model_inp, self.action, self.hidden_state)
         next_hidden = model_out[-1]
-
+        ##### MAKE SURE TO ADD THE REST OF THE OUTPUTS TO THE BUFFER AT EPISODE
+        #### END
         action, next_q = self.output_formatter.transform_output(model_out[:-1])
 
         if self.train:
@@ -114,8 +128,7 @@ class PoolAgent(BaseAgent):
             if self.state is not None:
                 self.add_to_buffer([self.state, self.action, self.reward,
                                     model_inp, self.terminal, self.last_action,
-                                    self.hidden_state, next_hidden], self.q_val,
-                                    next_q)
+                                    self.hidden_state], self.q_val, next_q)
 
             self.state = model_inp
             self.action = model_out[0]
