@@ -18,12 +18,14 @@ class BotPoolManager(BotHelperProcess):
 
         from dragonbot.game.input import RecurrentInputFormatter
         from dragonbot.game.output import RecurrentOutputFormatter
+        from dragonbot.envs import SimpleAerial
 
         super().__init__(metadata_queue, quit_event, options)
 
         config = ConfigParser()
         config.read("dragonbot/rlbot/config/algo.cfg")
 
+        self.env = SimpleAerial
         self.config = config
         self.device = torch.device(config["General"]["device"])
 
@@ -60,10 +62,12 @@ class BotPoolManager(BotHelperProcess):
                                   optim, optim, optim,
                                   config["Algorithm"].getboolean("twin"),
                                   int(config["Algorithm"]["burn_in_length"]),
-                                  self.logger).to(self.device)
+                                  self.logger)
 
         if (len(config["General"]["load_path"]) > 0):
             self.model.load(config["General"]["load_path"])
+
+        self.model = self.model.to(self.device)
 
         self.model.share_memory()
 
@@ -80,7 +84,8 @@ class BotPoolManager(BotHelperProcess):
         """
         Returns the items that need to be sent to each agent.
         """
-        return (self.config, self.device, self.model)
+        return (self.config, self.device, self.model, self.experience_buffer,
+                self.env)
 
     def start(self):
         while not self.metadata_queue.empty():
@@ -90,7 +95,8 @@ class BotPoolManager(BotHelperProcess):
             self.pipes.append(pipe)
 
         if self.config["Training"].getboolean("train"):
-            self.train()
+            #self.train()
+            self.play()
         else:
             self.play()
 
@@ -108,9 +114,11 @@ class BotPoolManager(BotHelperProcess):
 
         while not self.quit_event.is_set():
             for pipe in self.pipes:
+                print("Waiting to RECV")
                 experience, q_val, next_q = pipe.recv()
+                print("Post RECV")
                 self.experience_buffer.add(experience, q_val, next_q)
-
+            print("Post add", len(self.experience_buffer))
             self.model.train_from_buffer(self.experience_buffer, batch_size,
                                          start_size, save_path, save_interval)
 

@@ -31,13 +31,13 @@ class InputFormatter():
 
         # Normalize all values, dividing by 1000 for now until max/min
         # velocities are attained
-        #loc_x = loc.x / SIDE_WALL_LENGTH
-        #loc_y = loc.y / BACK_WALL_LENGTH
-        #loc_z = (loc.z - MIDDLE_HEIGHT) / MIDDLE_HEIGHT
+        loc_x = loc.x / self.SIDE_WALL_LENGTH * 1000
+        loc_y = loc.y / self.BACK_WALL_LENGTH * 1000
+        loc_z = (loc.z - self.MIDDLE_HEIGHT) / self.MIDDLE_HEIGHT * 1000
 
 
         loc_vel = torch.FloatTensor([
-            loc.x, loc.y, loc.z,
+            loc_x, loc_y, loc_z,
             vel.x, vel.y, vel.z,
             ang_v.x, ang_v.y, ang_v.z
         ])
