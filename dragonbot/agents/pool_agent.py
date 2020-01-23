@@ -5,6 +5,7 @@ from torch.multiprocessing import Pipe
 from rlbot.agents.base_agent import BaseAgent, SimpleControllerState
 from rlbot.botmanager.helper_process_request import HelperProcessRequest
 from collections import deque
+from time import time, sleep
 
 from dragonbot.game.input import RecurrentInputFormatter
 from dragonbot.game.output import RecurrentOutputFormatter
@@ -13,6 +14,8 @@ class PoolAgent(BaseAgent):
     """
     An agent that exists in a pool with other agents.
     """
+    FPS = 30.0
+
     def initialize_agent(self):
         (self.config, self.device, self.model) = self.pipe.recv()
 
@@ -116,6 +119,9 @@ class PoolAgent(BaseAgent):
         if not packet.game_info.is_round_active:
             return SimpleControllerState()
 
+        # Game is seriously going too fast, scaling down fps
+        start_time = time()
+
         model_inp = self.input_formatter.transform_batch([[packet]])
         model_out = self.model.step(model_inp, self.action, self.hidden_state)
         next_hidden = model_out[-1]
@@ -137,6 +143,11 @@ class PoolAgent(BaseAgent):
         self.last_action = self.action
         self.hidden_state = next_hidden
 
+        # Scaling down FPS
+        end_time = time()
+        if end_time - start_time < 1 / self.FPS:
+            sleep(1 / self.FPS - (end_time - start_time))
+        #print(time() - start_time)
         return action
 
     def get_reward(self, next_packet):
@@ -149,6 +160,6 @@ class PoolAgent(BaseAgent):
         ball_info = self.input_formatter.get_obj_info(next_packet.game_ball)
 
         mse = torch.mean(0.5 * (car_info[0:2] - ball_info[0:2]) ** 2).mean(-1)
-        mse = mse.view(1, 1, 1)
+        mse = mse.view(1, 1, 1).to(self.device)
 
         return mse
