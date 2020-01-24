@@ -85,7 +85,7 @@ class BotPoolManager(BotHelperProcess):
         Returns the items that need to be sent to each agent.
         """
         return (self.config, self.device, self.model, self.experience_buffer,
-                self.env)
+                self.logger, sself.env)
 
     def start(self):
         while not self.metadata_queue.empty():

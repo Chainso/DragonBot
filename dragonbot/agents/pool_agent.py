@@ -14,11 +14,11 @@ class PoolAgent(BaseAgent):
     """
     An agent that exists in a pool with other agents.
     """
-    FPS = 30.0
+    FPS = 15.0
 
     def initialize_agent(self):
         (self.config, self.device, self.model, self.experience_buffer,
-         env) = self.pipe.recv()
+         self.logger, env) = self.pipe.recv()
 
         self.input_formatter = RecurrentInputFormatter(self.team, self.index,
                                                        self.device)
@@ -34,6 +34,8 @@ class PoolAgent(BaseAgent):
 
         # Training values
         self.train = self.config["Training"].getboolean("train")
+        self.reward = 0
+        self.step = 0
 
         if self.train:
             self.decay = float(self.config["Algorithm"]["discount"])
@@ -48,9 +50,9 @@ class PoolAgent(BaseAgent):
                                                                / self.sequence_length))))
 
             self.state = None
-            self.reward = 0
             self.terminal = torch.FloatTensor([[[False]]]).to(self.device)
             self.last_action = self.empty_action
+
 
         #self.reset()
 
@@ -73,19 +75,19 @@ class PoolAgent(BaseAgent):
 
     def retire(self):
         # Currently doesn't really do anything
-        print("Retired!")
-        self.terminal = 1 - self.terminal
+        if self.train:
+            self.terminal = 1 - self.terminal
 
-        # Add remaining experiences
-        for i in range(len(self.experiences)):
-            self._get_buffer_experience()
+            # Add remaining experiences
+            for i in range(len(self.experiences)):
+                self._get_buffer_experience()
 
-            if (len(self.ready_experiences) == self.sequence_length
-                                               + self.burn_in_length):
+                if (len(self.ready_experiences) == self.sequence_length
+                                                + self.burn_in_length):
+                    self.add_experience()
+
+            if (len(self.ready_experiences) > self.burn_in_length):
                 self.add_experience()
-
-        if (len(self.ready_experiences) > self.burn_in_length):
-            self.add_experience()
 
     def _n_step_decay(self):
         """
@@ -171,19 +173,28 @@ class PoolAgent(BaseAgent):
 
         action, next_q = self.output_formatter.transform_output(model_out[:-1])
 
+        self.reward = self.get_reward(packet)
+        self.step += 1
+
         if self.train:
+            next_state = model_inp
             #next_state, reward, terminal, is_start = self.env.step(packet, model_inp)
             #self.terminal = torch.FloatTensor([[[terminal]]]).to(self.device)
 
-            self.reward = self.get_reward(packet)
-            if not is_start:
-                self.add_to_buffer([self.state, self.action, reward,
+            if self.state is not None:
+                self.add_to_buffer([self.state, self.action, self.reward,
                                     next_state, self.terminal, self.last_action,
                                     self.hidden_state], self.q_val, next_q)
 
             self.state = next_state
             self.action = model_out[0]
             self.q_val = next_q
+
+            if self.logger is not None:
+                self.logger["Train/Reward"] = self.reward, self.step
+        else:
+            if self.logger is not None:
+                self.logger["Play/Reward"] = self.reward, self.step
 
         self.last_action = self.action
         self.hidden_state = next_hidden
@@ -204,7 +215,9 @@ class PoolAgent(BaseAgent):
         car_info = self.input_formatter.get_obj_info(next_packet.game_cars[self.index])
         ball_info = self.input_formatter.get_obj_info(next_packet.game_ball)
 
-        mse = torch.mean(0.5 * (car_info[:2] - ball_info[:2]) ** 2).mean(-1)
-        mse = mse.view(1, 1, 1).to(self.device)
+        loc = -torch.mean(0.5 * (car_info[:2] - ball_info[:2]) ** 2).mean(-1) / 100
+        ball_vel = torch.sqrt((ball_info[2:4] ** 2).sum(-1))
 
-        return mse
+        reward = (loc + ball_vel).view(1, 1, 1).to(self.device)
+
+        return reward

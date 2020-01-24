@@ -31,13 +31,13 @@ class InputFormatter():
 
         # Normalize all values, dividing by 1000 for now until max/min
         # velocities are attained
-        loc_x = loc.x / self.SIDE_WALL_LENGTH * 1000
-        loc_y = loc.y / self.BACK_WALL_LENGTH * 1000
-        loc_z = (loc.z - self.MIDDLE_HEIGHT) / self.MIDDLE_HEIGHT * 1000
+        loc_x = loc.x / self.SIDE_WALL_LENGTH
+        loc_y = loc.y / self.BACK_WALL_LENGTH
+        loc_z = (loc.z - self.MIDDLE_HEIGHT) / self.MIDDLE_HEIGHT
 
 
         loc_vel = torch.FloatTensor([
-            loc_x, loc_y, loc_z,
+            loc.x, loc.y, loc.z,
             vel.x, vel.y, vel.z,
             ang_v.x, ang_v.y, ang_v.z
         ])
@@ -92,7 +92,7 @@ class InputFormatter():
         Returns the shape of the input state (excluding batch size and sequence
         length).
         """
-        return (37,)
+        return (25,)
 
     @staticmethod
     def input_space():
@@ -104,36 +104,6 @@ class InputFormatter():
 class RecurrentInputFormatter(InputFormatter):
     def __init__(self, team, index, device="cpu"):
         super().__init__(team, index, device)
-
-    def transform_packet(self, packet):
-        """
-        Transforms the packet into a state to feed into the model.
-        """
-        #### COPYING BECAUSE THE CLASS ISN'T LOADING PROPERLY RIGHT NOW
-        # It's your car first, then your team, then the enemy team
-        my_team_info = []
-        enemy_team_info = []
-
-        for i in range(packet.num_cars):
-            car = packet.game_cars[i]
-            car_info = self.get_obj_info(car)
-
-            if i == self.index:
-                boost = torch.FloatTensor([packet.num_boost / 100])
-                my_car_info = torch.cat([car_info, boost])
-                my_team_info = [my_car_info] + my_team_info
-            elif car.team == self.team:
-                my_team_info.append(car_info)
-            else:
-                enemy_team_info.append(car_info)
-
-        ball_info = self.get_obj_info(packet.game_ball)
-
-        car_infos = torch.cat(my_team_info + enemy_team_info)
-
-        all_info = torch.cat(my_team_info + enemy_team_info + [ball_info])
-
-        return all_info.to(self.device)
 
     def transform_batch(self, packets):
         """
